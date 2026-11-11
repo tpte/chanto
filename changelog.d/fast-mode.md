@@ -1,0 +1,1 @@
+- **Speed-first defaults.** Foreground Bash calls now move to the background after 15 seconds instead of 120, and a `sleep` of 10 seconds or more is refused anywhere in a command (not only at the start), so measuring scripts that wait for a sample window no longer freeze the TUI.

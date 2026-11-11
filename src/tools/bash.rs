@@ -640,14 +640,17 @@ independent calls in parallel."
         if arg_bool(&args, "run_in_background") {
             return start_background(ctx, &command, &cwd, unsandboxed, description).await;
         }
-        if let Some(secs) = leading_sleep(&command).filter(|s| *s >= 10.0) {
+        // 速度優先特化：連指令串裡的 sleep 也攔（原本只擋開頭的）。
+        if let Some(secs) = long_sleep(&command) {
             return Ok(ToolOutput::err(format!(
-                "Blocked: a foreground `sleep {secs}` only uses up time. To wait for a background command, call BashOutput with `wait_secs`; \
-                 to wait for something else, poll for it in one command (`until <check>; do sleep 2; done`) with a timeout."
+                "Blocked: `sleep {secs}` inside a foreground command only burns time. To wait for a background job, call BashOutput with `wait_secs`; \
+                 to poll for a condition, run one command with a timeout (`until <check>; do sleep 2; done`). \
+                 If you were about to measure something over a time window: report the current numbers now instead of waiting."
             )));
         }
+        // 速度優先特化：預設 15 秒就轉背景，不讓畫面卡住（原 120 秒）。
         let timeout_ms = arg_u64(&args, "timeout")
-            .unwrap_or(120_000)
+            .unwrap_or(15_000)
             .clamp(1000, 600_000);
         // In a run's container the cwd file must be somewhere both sides see.
         let tmp = crate::runs::container::for_path(&cwd)
@@ -1462,6 +1465,27 @@ pub(crate) fn leading_sleep(command: &str) -> Option<f64> {
     }
     let n = n.strip_suffix('s').unwrap_or(n);
     n.parse().ok()
+}
+
+/// 速度優先特化：找出指令裡任何位置的 `sleep N`（N >= 10 秒），不限開頭。
+/// 原本只認開頭，導致 `curl ...; sleep 180; curl ...` 這種量測腳本會把 TUI 卡住。
+pub(crate) fn long_sleep(command: &str) -> Option<f64> {
+    let mut best: Option<f64> = None;
+    let mut rest = command;
+    while let Some(idx) = rest.find("sleep ") {
+        rest = &rest[idx + 6..];
+        let trimmed = rest.trim_start();
+        let end = trimmed
+            .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == 's'))
+            .unwrap_or(trimmed.len());
+        let (n, _tail) = trimmed.split_at(end);
+        if let Ok(v) = n.strip_suffix('s').unwrap_or(n).parse::<f64>() {
+            if v >= 10.0 && best.map_or(true, |b| v > b) {
+                best = Some(v);
+            }
+        }
+    }
+    best
 }
 
 pub struct KillShell;
