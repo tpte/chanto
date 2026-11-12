@@ -20,3 +20,7 @@ sdk/typescript/node_modules/
 /sdk/python/dist/
 /sdk/python/build/
 /sdk/python/*.egg-info/
+
+# 本地特化產物（不進版控，用 Docker 重新編譯）
+/chanto-fast
+/chanto-special
